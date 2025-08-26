@@ -16,10 +16,12 @@ import torch.nn as nn   # 导入神经网络模块
 import torch.optim as optim  # 导入优化器模块
 import torch.nn.functional as F  # 导入函数式API
 import matplotlib.pyplot as plt  # 导入matplotlib绘图库用于可视化
+import matplotlib.animation as animation  # 导入动画模块
 import matplotlib
 import warnings
 from collections import namedtuple, deque  # 导入数据结构
 import random
+import time
 
 # 设置中文显示和忽略警告
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
@@ -39,7 +41,7 @@ class Config:
         self.env_name = 'CartPole-v0'  # 环境名称：倒立摆问题
         
         # 训练参数
-        self.max_episodes = 500       # 最大训练回合数
+        self.max_episodes = 200       # 最大训练回合数
         self.max_steps = 500         # 每回合最大步数
         
         # 网络参数
@@ -382,11 +384,170 @@ def train_ddqn():
     # 关闭环境
     env.close()
     
-    # 返回训练结果
-    return rewards, moving_average_rewards, ep_steps
+    # 返回训练结果和智能体
+    return rewards, moving_average_rewards, ep_steps, agent
 
 # ============================
-# 6. 结果可视化
+# 6. 动画展示功能
+# ============================
+def show_agent_animation(agent, cfg, num_episodes=3):
+    """
+    展示训练好的智能体在环境中的表现动画
+    
+    Args:
+        agent: 训练好的DDQN智能体
+        cfg: 配置参数
+        num_episodes: 展示的回合数
+    """
+    print(f"\n🎬 开始展示训练好的智能体表现...")
+    print(f"将展示 {num_episodes} 个回合的动画")
+    print("-" * 50)
+    
+    # 创建环境（用于渲染）
+    env = gym.make(cfg.env_name, render_mode="rgb_array")
+    
+    # 设置智能体为评估模式（不进行探索）
+    original_epsilon = agent.epsilon
+    agent.epsilon = 0  # 完全利用，不探索
+    
+    for episode in range(num_episodes):
+        print(f"📽️  正在展示第 {episode + 1} 个回合...")
+        
+        # 重置环境
+        state, _ = env.reset()
+        total_reward = 0
+        steps = 0
+        
+        # 存储每一帧的图像
+        frames = []
+        
+        # 运行一个回合
+        for step in range(cfg.max_steps):
+            # 渲染当前帧
+            frame = env.render()
+            frames.append(frame)
+            
+            # 智能体选择动作（不探索）
+            action = agent.select_action(state)
+            
+            # 执行动作
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            
+            # 更新状态和奖励
+            state = next_state
+            total_reward += reward
+            steps += 1
+            
+            if done:
+                break
+        
+        print(f"   回合 {episode + 1} 完成: 总奖励={total_reward:.0f}, 步数={steps}")
+        
+        # 创建并显示动画
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.set_title(f'DDQN智能体表现 - 回合 {episode + 1}\n总奖励: {total_reward:.0f}, 步数: {steps}', 
+                    fontsize=14)
+        ax.axis('off')
+        
+        # 初始化图像
+        im = ax.imshow(frames[0])
+        
+        def animate(frame_idx):
+            im.set_array(frames[frame_idx])
+            return [im]
+        
+        # 创建动画
+        anim = animation.FuncAnimation(fig, animate, frames=len(frames), 
+                                     interval=50, blit=True, repeat=True)
+        
+        # 保存动画为GIF（可选）
+        try:
+            anim.save(f'ddqn_episode_{episode + 1}.gif', writer='pillow', fps=20)
+            print(f"   动画已保存为 'ddqn_episode_{episode + 1}.gif'")
+        except Exception as e:
+            print(f"   保存GIF失败: {e}")
+        
+        plt.show()
+        
+        # 简短延迟
+        time.sleep(1)
+    
+    # 恢复原始探索率
+    agent.epsilon = original_epsilon
+    
+    # 关闭环境
+    env.close()
+    
+    print(f"\n✨ 动画展示完成！")
+
+
+def test_agent_performance(agent, cfg, num_episodes=10):
+    """
+    测试智能体的性能（不渲染动画，只显示统计结果）
+    
+    Args:
+        agent: 训练好的智能体
+        cfg: 配置参数
+        num_episodes: 测试回合数
+    """
+    print(f"\n🧪 开始测试智能体性能...")
+    print(f"将进行 {num_episodes} 个回合的测试")
+    print("-" * 50)
+    
+    # 创建环境（不渲染）
+    env = gym.make(cfg.env_name)
+    
+    # 设置智能体为评估模式
+    original_epsilon = agent.epsilon
+    agent.epsilon = 0  # 不探索，完全利用学到的策略
+    
+    test_rewards = []
+    test_steps = []
+    
+    for episode in range(num_episodes):
+        state, _ = env.reset()
+        total_reward = 0
+        steps = 0
+        
+        for step in range(cfg.max_steps):
+            action = agent.select_action(state)
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            
+            state = next_state
+            total_reward += reward
+            steps += 1
+            
+            if done:
+                break
+        
+        test_rewards.append(total_reward)
+        test_steps.append(steps)
+        
+        if (episode + 1) % 5 == 0:
+            print(f"测试进度: {episode + 1}/{num_episodes} - "
+                  f"当前回合奖励: {total_reward:.0f}, 步数: {steps}")
+    
+    # 恢复原始探索率
+    agent.epsilon = original_epsilon
+    
+    # 关闭环境
+    env.close()
+    
+    # 打印测试结果
+    print(f"\n📊 测试结果统计:")
+    print(f"- 平均奖励: {np.mean(test_rewards):.2f} ± {np.std(test_rewards):.2f}")
+    print(f"- 最高奖励: {max(test_rewards):.0f}")
+    print(f"- 最低奖励: {min(test_rewards):.0f}")
+    print(f"- 平均步数: {np.mean(test_steps):.2f} ± {np.std(test_steps):.2f}")
+    print(f"- 成功率 (>=195分): {sum(1 for r in test_rewards if r >= 195) / len(test_rewards) * 100:.1f}%")
+    
+    return test_rewards, test_steps
+
+
+# ============================
+# 7. 结果可视化
 # ============================
 def plot_results(rewards, moving_average_rewards, ep_steps):
     """
@@ -437,14 +598,15 @@ def plot_results(rewards, moving_average_rewards, ep_steps):
         axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
     
-    # 保存图片
+    # 修复保存图片的bug：先保存再显示
     plt.savefig('ddqn_training_results.png', dpi=300, bbox_inches='tight')
     print("训练结果图表已保存为 'ddqn_training_results.png'")
+    
+    plt.show()
 
 # ============================
-# 7. 主函数
+# 8. 主函数
 # ============================
 if __name__ == "__main__":
     print("=" * 60)
@@ -452,7 +614,7 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # 开始训练
-    rewards, moving_average_rewards, ep_steps = train_ddqn()
+    rewards, moving_average_rewards, ep_steps, agent = train_ddqn()
     
     print("\n" + "=" * 60)
     print("📊 训练完成，开始分析结果...")
@@ -467,3 +629,29 @@ if __name__ == "__main__":
     
     # 绘制结果
     plot_results(rewards, moving_average_rewards, ep_steps)
+    
+    print("\n" + "=" * 60)
+    print("🎯 开始测试和展示训练好的智能体...")
+    print("=" * 60)
+    
+    # 测试智能体性能
+    test_rewards, test_steps = test_agent_performance(agent, Config(), num_episodes=10)
+    
+    # 询问用户是否要看动画
+    print(f"\n" + "=" * 60)
+    print("🎬 智能体动画展示")
+    print("=" * 60)
+    print("是否要展示训练好的智能体在环境中的动画表现？")
+    print("注意：动画展示会打开多个matplotlib窗口")
+    
+    user_choice = input("输入 'y' 或 'yes' 来观看动画，其他任意键跳过: ").lower().strip()
+    
+    if user_choice in ['y', 'yes']:
+        # 展示智能体动画
+        show_agent_animation(agent, Config(), num_episodes=3)
+    else:
+        print("跳过动画展示。")
+    
+    print(f"\n" + "=" * 60)
+    print("🎉 程序运行完成！")
+    print("=" * 60)
