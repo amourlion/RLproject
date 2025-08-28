@@ -151,7 +151,7 @@ class DQN(nn.Module):
         x = F.relu(self.fc1(x))  # 第一层 + ReLU激活函数
         x = F.relu(self.fc2(x))  # 第二层 + ReLU激活函数
         x = self.fc3(x)          # 输出层（不使用激活函数，因为Q值可以是任意实数）
-        return x
+        return x # 返回所有动作的Q值: [Q(s,a0), Q(s,a1), ..., Q(s,an)]
 
 # ============================
 # 4. DDQN智能体
